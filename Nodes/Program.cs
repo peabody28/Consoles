@@ -20,7 +20,19 @@ namespace Nodes
      */
     public class Node
     {
-        private bool isSend = false;
+        public struct SendedLetter
+        {
+            public char letter;
+            public byte hash;
+
+            public SendedLetter(char c, byte n)
+            {
+                this.letter = c;
+                this.hash = n;
+            }
+        }
+
+        private List<SendedLetter> sendedLetters = new List<SendedLetter>();
 
         private IPEndPoint me;
 
@@ -30,8 +42,10 @@ namespace Nodes
 
         private UdpClient server = null;
 
+        private static Random rand = new Random((int)DateTime.Now.Ticks);
+
         // Широковещательный запрос
-        private void SayHello(Node node)
+        private static void SayHello(Node node)
         {
             var client = node.server;
 
@@ -47,7 +61,7 @@ namespace Nodes
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                //Console.WriteLine(ex.Message);
             }
             //client.Close();
         }
@@ -84,9 +98,9 @@ namespace Nodes
                         if (!node.friends.Contains(RemoteIpEndPoint))
                         {
                             node.friends.Add(RemoteIpEndPoint);
-                            Console.WriteLine("I know "+ RemoteIpEndPoint.ToString());
+                            //Console.WriteLine("I know " + RemoteIpEndPoint.ToString());
                         }
-                            
+
                     }
                 }
             }
@@ -105,11 +119,11 @@ namespace Nodes
             int port = 0;
 
             int index = 2;
-            for(int i = 0; i < data[1]; i++)
+            for (int i = 0; i < data[1]; i++)
             {
-                for(int j = index; j < index + 5; j++)
+                for (int j = index; j < index + 5; j++)
                 {
-                    if(j == index +4 )
+                    if (j == index + 4)
                     {
                         port = data[j] + 8000;
                     }
@@ -118,24 +132,24 @@ namespace Nodes
                         ip += data[j].ToString();
                         if (j != index + 3)
                             ip += ".";
-                    }    
+                    }
                 }
                 var friend = new IPEndPoint(IPAddress.Parse(ip), port);
                 ip = "";
                 index += 5;
-                if(!friend.Equals(node.me) && !node.friends.Contains(friend))
+                if (!friend.Equals(node.me) && !node.friends.Contains(friend))
                 {
                     node.friends.Add(friend);
-                    Console.WriteLine("I know "+ friend.ToString());
+                    //Console.WriteLine("I know " + friend.ToString());
                 }
-                    
+
             }
         }
 
         // Подготовка массива байтов для отправки при запросе (кого ты знаешь?)
         private static byte[] FriendListForSend(Node node)
         {
-            byte[] response = new byte[2 + (node.friends.Count+1) * 5];
+            byte[] response = new byte[2 + (node.friends.Count + 1) * 5];
             response[0] = 3;
             response[1] = (byte)(node.friends.Count + 1);
 
@@ -144,14 +158,14 @@ namespace Nodes
             response[3] = myIpBytes[1];
             response[4] = myIpBytes[2];
             response[5] = myIpBytes[3];
-            response[6] = (byte)(node.me.Port-8000);
+            response[6] = (byte)(node.me.Port - 8000);
 
             int index = 7;
-            for(int i = 0; i < node.friends.Count; i++)
+            for (int i = 0; i < node.friends.Count; i++)
             {
                 var ipBytes = node.friends[i].Address.GetAddressBytes();
                 int j = index;
-                for (; j < index+4; j++)
+                for (; j < index + 4; j++)
                     response[j] = ipBytes[j - index];
                 response[j] = (byte)(node.friends[i].Port - 8000);
                 index += 5;
@@ -173,8 +187,8 @@ namespace Nodes
                 }
 
             // определяю свободный порт
-            Socket tcp = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);   
-            
+            Socket tcp = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
             IPEndPoint local = null;
             int myPort = 8000;
             while (true)
@@ -187,7 +201,7 @@ namespace Nodes
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Port " + myPort + " isn't free");
+                    //Console.WriteLine("Port " + myPort + " isn't free");
                     myPort++;
                 }
             }
@@ -208,10 +222,9 @@ namespace Nodes
             server = new TcpListener(node.me);
             server.Start();
 
-            while(true)
+            while (true)
             {
                 TcpClient client = server.AcceptTcpClient();
-
                 var stream = client.GetStream();
                 var data = new byte[1024];
                 stream.Read(data, 0, data.Length);
@@ -220,14 +233,67 @@ namespace Nodes
                 {
                     UpdateNodesFromBytes(node, data);
                 }
-                else if(data[0] == 4)
+                else if (data[0] == 4)
                 {
-                    Console.Write(Convert.ToChar(data[1]));
-                    // разослать символ своим друзьям
+                    int port = data[3] + 8000;
+                    var clientEndPoint = client.Client.RemoteEndPoint.ToIPEndPoint(port);
+   
+                    char letter = Convert.ToChar(data[1]);
+
+                    var sl = new SendedLetter(letter, data[2]);
+                   
+                    if (!node.sendedLetters.Contains(sl) && !clientEndPoint.Equals(node.me))
+                    {
+                        Console.Write(letter);
+
+                        while (node.sendedLetters.Count >= 26)
+                            node.sendedLetters.RemoveAt(0);
+                        node.sendedLetters.Add(sl);
+
+                        SendLetterToFriends(node, sl, clientEndPoint);
+                    }
                 }
                 stream.Close();
                 client.Close();
             }
+        }
+
+        public static void SendLetterToFriends(Node node, SendedLetter sendedLetter, IPEndPoint sender = null)
+        {
+
+            byte[] data = new byte[4];
+            data[0] = 4;
+            data[1] = (byte)Convert.ToInt32(sendedLetter.letter);
+            data[2] = sendedLetter.hash;
+
+            data[3] = (byte)(node.me.Port - 8000);
+
+            for (int i = 0; i < node.friends.Count; i++)
+            {
+                var friend = node.friends[i];
+                if (friend.Equals(sender))
+                    continue;
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        TcpClient tcpClient = new TcpClient();
+                        tcpClient.Connect(friend);
+                        NetworkStream stream = tcpClient.GetStream();
+                        stream.Write(data, 0, data.Length);
+                        stream.Close();
+                        tcpClient.Close();
+                        tcpClient.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        node.friends.Remove(friend);
+                    }
+                });
+               
+            }
+
         }
 
         static void Main(string[] args)
@@ -239,13 +305,46 @@ namespace Nodes
             node.server = new UdpClient();
             node.server.Client.Bind(node.me);
 
-            node.SayHello(node);
-            Console.WriteLine(node.me.ToString());
+            SayHello(node);
+            //Console.WriteLine(node.me.ToString());
 
-            Task.Run(()=>ListenTCPConnections(node));
-            Task.Run(()=>ListenUDPRequests(node));
+            Task.Run(() => ListenTCPConnections(node));
+            Task.Run(() => ListenUDPRequests(node));
 
-            while (true) ;
+            #region SendLetter
+
+            while (true)
+            {
+                var key = Console.ReadKey();
+                char c = key.KeyChar;
+
+                byte num = (byte)rand.Next(0, 255);
+
+                var sl = new SendedLetter(c, num);
+
+                while (node.sendedLetters.Count >= 26)
+                    node.sendedLetters.RemoveAt(0);
+                node.sendedLetters.Add(sl);
+
+                SendLetterToFriends(node, sl);
+            }
+            #endregion
+        }
+    }
+
+    public static class EndpointExt
+    {
+        public static IPEndPoint ToIPEndPoint(this EndPoint ep, int port)
+        {
+            string ip = ep.ToString();
+            string clientIp = "";
+            for(int i = 0;;i++)
+            {
+                if (ip[i] == ':')
+                    break;
+                clientIp += ip[i];
+            }
+            return new IPEndPoint(IPAddress.Parse(clientIp), port);
         }
     }
 }
