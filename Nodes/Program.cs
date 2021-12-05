@@ -24,16 +24,17 @@ namespace Nodes
         {
             public char letter;
             public byte hash;
-            public byte hash2;
-            public SendedLetter(char c, byte n, byte n2)
+            public SendedLetter(char c, byte n)
             {
                 this.letter = c;
                 this.hash = n;
-                this.hash2 = n2;
             }
         }
 
         private List<SendedLetter> sendedLetters = new List<SendedLetter>();
+
+        // Максимальное количество букв которое я буду помнить при отправке
+        private static int maxLettersQuery = 200;
 
         private IPEndPoint me;
 
@@ -44,7 +45,7 @@ namespace Nodes
         private TcpListener tcpListener = null;
 
         // если спустя это время консоль не ответит, считаю ее закрытой
-        private int tcpConnectionTimeout = 2000;
+        private int tcpConnectionTimeout = 1000;
 
         private UdpClient server = null;
 
@@ -64,7 +65,7 @@ namespace Nodes
 
 
         // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
-        private event FriendActions dieFriend = null;
+        private event FriendActions dieFriend = DieFriendMessage;
 
         public static void DieFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("Die friend: " + friend.ToString());
@@ -153,36 +154,40 @@ namespace Nodes
             {
                 TcpClient client = server.AcceptTcpClient();
                 var stream = client.GetStream();
-                var data = new byte[1024];
+                var data = new byte[256];
                 stream.Read(data, 0, data.Length);
 
                 if (data[0] == 3)
                 {
-                    UpdateFriendsFromBytes(node, data);
+                    Task.Run(()=>UpdateFriendsFromBytes(node, data));
                 }
                 else if (data[0] == 4)
                 {
-                    int port = data[4] + 8000;
+                    int port = data[3] + 8000;
                     var clientEndPoint = client.Client.RemoteEndPoint.ToIPEndPoint(port);
-
-                    char letter = Convert.ToChar(data[1]);
-
-                    var sl = new SendedLetter(letter, data[2], data[3]);
-
-                    if (!node.sendedLetters.Contains(sl))
+                    
+                    Task.Run(() =>
                     {
-                        Console.Write(letter);
+                        char letter = Convert.ToChar(data[1]);
 
-                        while (node.sendedLetters.Count >= 26)
-                            node.sendedLetters.RemoveAt(0);
-                        node.sendedLetters.Add(sl);
+                        var sl = new SendedLetter(letter, data[2]);
 
-                        var task = new Task(() => SendLetterToFriends(node, sl, clientEndPoint));
-                        node.lettersForSendQuery.Enqueue(task);
-                    }
+                        if (!node.sendedLetters.Contains(sl))
+                        {
+                            Console.Write(letter);
+
+                            while (node.sendedLetters.Count >= Node.maxLettersQuery)
+                                node.sendedLetters.RemoveAt(0);
+                            node.sendedLetters.Add(sl);
+
+                            var task = new Task(() => SendLetterToFriends(node, sl, clientEndPoint));
+                            node.lettersForSendQuery.Enqueue(task);
+                        }
+                    });
                 }
                 stream.Close();
                 client.Close();
+
             }
         }
 
@@ -217,18 +222,17 @@ namespace Nodes
         // Обновение списка друзей
         private static void UpdateFriendsFromBytes(Node node, byte[] data)
         {
-            string ip = "";
+            string ip;
             int port = 0;
 
             int index = 2;
             for (int i = 0; i < data[1]; i++)
             {
+                ip = "";
                 for (int j = index; j < index + 5; j++)
                 {
                     if (j == index + 4)
-                    {
                         port = data[j] + 8000;
-                    }
                     else
                     {
                         ip += data[j].ToString();
@@ -237,14 +241,12 @@ namespace Nodes
                     }
                 }
                 var friend = new IPEndPoint(IPAddress.Parse(ip), port);
-                ip = "";
                 index += 5;
                 if (!friend.Equals(node.me) && !node.friends.Contains(friend))
                 {
                     node.friends.Add(friend);
                     node.newFriend?.Invoke(friend);
                 }
-
             }
         }
 
@@ -285,41 +287,29 @@ namespace Nodes
 
         public static void SendLetterToFriends(Node node, SendedLetter sendedLetter, IPEndPoint sender = null)
         {
-            byte[] data = new byte[5];
+            byte[] data = new byte[4];
             data[0] = 4;
             data[1] = (byte)Convert.ToInt32(sendedLetter.letter);
             data[2] = sendedLetter.hash;
-            data[3] = sendedLetter.hash2;
-            data[4] = (byte)(node.me.Port - 8000);
+            data[3] = (byte)(node.me.Port - 8000);
 
-            int x = node.friends.Count;
-            for (int i = 0; i < x; i++)
+            
+            for (int i = 0; i < node.friends.Count; i++)
             {
-                
-                IPEndPoint friend;
-                try
-                {
-                    friend = new IPEndPoint(node.friends[i].Address, node.friends[i].Port);
-                    if(node.exFriends.Contains(friend))
-                    {
-                        continue;
-                    }
-                }
-                catch(IndexOutOfRangeException )
-                {
-                    Console.WriteLine("\nout of range");
-                    break;
-                }
+                IPEndPoint friend = node.friends[i];
 
                 if (friend.Equals(sender))
                     continue;
 
+                bool good = false;
+                // try connect
                 Task.Run(() =>
                 {
                     try
                     {
                         TcpClient tcpClient = new TcpClient();
                         tcpClient.Connect(friend);
+                        good = true;
                         NetworkStream stream = tcpClient.GetStream();
                         stream.Write(data, 0, data.Length);
                         stream.Close();
@@ -328,53 +318,42 @@ namespace Nodes
                     }
                     catch (Exception ex)
                     {
-                        node.exFriends.Add(friend);
-                        node.friends.Remove(friend);
-                        node.dieFriend?.Invoke(friend);
-                        i--;
+                        Console.WriteLine("\ncannot connect to " + friend.ToString());
                     }
-                    /*
-                    int j = 50;
-                    int timeout = node.tcpConnectionTimeout / j;
-                    while (j-- > 0)
-                    {
-                        if (good)
-                            break;
-                        Thread.Sleep(timeout);
-                    }
-                    if (!good)
-                    {
-                        node.friends.Remove(friend);
-                        node.dieFriend?.Invoke(friend);
-                        i--;
-                        //node.exFriends.Add(friend);
-                    }
-                    */
                 });
+
+                #region WaitTimeOut
+                int j = 100;
+                int timeout = node.tcpConnectionTimeout / j;
+                while (j-- > 0)
+                {
+                    if (good) break;
+                    Thread.Sleep(timeout);
+                }
+                if (!good)
+                {
+                    node.exFriends.Add(friend);
+                    node.dieFriend?.Invoke(friend);
+                }
+                #endregion
             }
-            /*
-            foreach (var item in node.exFriends)
-            {
-                node.friends.Remove(item);
-                node.dieFriend?.Invoke(item);
-            }
-            */
-             
+           
         }
 
         public static void LettersForSendQueryHandler(Node node)
         {
-            while(true)
+           
+            while (true)
             {
-                while (node.lettersForSendQuery.Count == 0)
-                {
-                    if (node.exFriends.Count > 0)
-                        node.exFriends.Clear();
-                }
+                while (node.lettersForSendQuery.Count == 0) 
+                    ;
 
-                var task = node.lettersForSendQuery.Dequeue();
+                foreach (var item in node.exFriends)
+                    node.friends.Remove(item);
+                node.exFriends.Clear();
+                Task task = node.lettersForSendQuery.Dequeue();
                 task.Start();
-                //task.Wait();
+                task.Wait();
             }
         }
 
@@ -394,7 +373,6 @@ namespace Nodes
             Task.Run(() => ListenUDPRequests(node));
             Task.Run(() => LettersForSendQueryHandler(node));
 
-
             #region SendLetter
 
             while (true)
@@ -402,12 +380,11 @@ namespace Nodes
                 var key = Console.ReadKey();
                 char c = key.KeyChar;
 
-                byte hash = (byte)(rand.Next(0, 1000)%256);
-                byte hash2 = (byte)(rand.Next(10000, 20000)%256);
+                byte hash = (byte)rand.Next(0, 255);
 
-                var sl = new SendedLetter(c, hash, hash2);
+                var sl = new SendedLetter(c, hash);
 
-                while (node.sendedLetters.Count >= 26)
+                while (node.sendedLetters.Count >= Node.maxLettersQuery)
                     node.sendedLetters.RemoveAt(0);
                 node.sendedLetters.Add(sl);
 
