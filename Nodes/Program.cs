@@ -61,7 +61,7 @@ namespace Nodes
         private event FriendActions newFriend = NewFriendMessage;
 
         public static void NewFriendMessage(IPEndPoint friend) =>
-            Console.WriteLine("New friend: "+friend.ToString());
+            Console.WriteLine("New friend: " + friend.ToString());
 
 
         // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
@@ -98,7 +98,7 @@ namespace Nodes
         {
             var server = node.server;
             IPEndPoint RemoteIpEndPoint = null;
-            
+
             while (true)
             {
                 // Ожидание запроса новой консоли
@@ -159,13 +159,13 @@ namespace Nodes
 
                 if (data[0] == 3)
                 {
-                    Task.Run(()=>UpdateFriendsFromBytes(node, data));
+                    Task.Run(() => UpdateFriendsFromBytes(node, data));
                 }
                 else if (data[0] == 4)
                 {
                     int port = data[3] + 8000;
                     var clientEndPoint = client.Client.RemoteEndPoint.ToIPEndPoint(port);
-                    
+
                     Task.Run(() =>
                     {
                         char letter = Convert.ToChar(data[1]);
@@ -293,7 +293,7 @@ namespace Nodes
             data[2] = sendedLetter.hash;
             data[3] = (byte)(node.me.Port - 8000);
 
-            
+
             for (int i = 0; i < node.friends.Count; i++)
             {
                 IPEndPoint friend = node.friends[i];
@@ -337,15 +337,15 @@ namespace Nodes
                 }
                 #endregion
             }
-           
+
         }
 
         public static void LettersForSendQueryHandler(Node node)
         {
-           
+
             while (true)
             {
-                while (node.lettersForSendQuery.Count == 0) 
+                while (node.lettersForSendQuery.Count == 0)
                     ;
 
                 foreach (var item in node.exFriends)
@@ -406,7 +406,7 @@ namespace Nodes
         {
             string ip = ep.ToString();
             string clientIp = "";
-            for(int i = 0;;i++)
+            for (int i = 0; ; i++)
             {
                 if (ip[i] == ':')
                     break;
