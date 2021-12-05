@@ -37,17 +37,30 @@ namespace Nodes
         private IPEndPoint me;
 
         private List<IPEndPoint> friends = new List<IPEndPoint>();
+
         private List<IPEndPoint> exFriends = new List<IPEndPoint>();
 
+
         private TcpListener tcpListener = null;
+
+        private int tcpConnectionTimeout = 2000;
+
 
         private UdpClient server = null;
 
         private static Random rand = new Random((int)DateTime.Now.Ticks);
 
-        private int tcpConnectionTimeout = 2000;
-
         private Queue<Task> query = new Queue<Task>();
+
+
+        private delegate void FriendActions(IPEndPoint point);
+        private event FriendActions newFriend = null;
+        public static void NewFriendMessage(IPEndPoint friend) =>
+            Console.WriteLine("New friend: "+friend.ToString());
+
+        private event FriendActions dieFriend = null;
+        public static void DieFriendMessage(IPEndPoint friend) =>
+            Console.WriteLine("Die friend: " + friend.ToString());
 
         // Широковещательный запрос
         private static void SayHello(Node node)
@@ -76,14 +89,15 @@ namespace Nodes
         {
             var server = node.server;
             IPEndPoint RemoteIpEndPoint = null;
-            try
+            
+            while (true)
             {
-                while (true)
-                {
-                    // Ожидание запроса новой консоли
-                    byte[] data = server.Receive(ref RemoteIpEndPoint);
+                // Ожидание запроса новой консоли
+                byte[] data = server.Receive(ref RemoteIpEndPoint);
 
-                    if (RemoteIpEndPoint.Equals(node.me) == false)
+                if (RemoteIpEndPoint.Equals(node.me) == false)
+                {
+                    try
                     {
                         // Cоединяюсь по TCP с новой консолью
                         TcpClient tcpClient = new TcpClient();
@@ -103,18 +117,16 @@ namespace Nodes
                         if (!node.friends.Contains(RemoteIpEndPoint))
                         {
                             node.friends.Add(RemoteIpEndPoint);
-                            //Console.WriteLine("I know " + RemoteIpEndPoint.ToString());
+                            node.newFriend?.Invoke(RemoteIpEndPoint);
                         }
-
                     }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Возникло исключение: " + ex.ToString() + "\n  " + ex.Message);
+                    }
+
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Возникло исключение: " + ex.ToString() + "\n  " + ex.Message);
-            }
-            //server.Close();
-            //server.Dispose();
         }
 
         // Слушаю запросы на подключение от консолей
@@ -222,7 +234,7 @@ namespace Nodes
                 if (!friend.Equals(node.me) && !node.friends.Contains(friend))
                 {
                     node.friends.Add(friend);
-                    //Console.WriteLine("I know " + friend.ToString());
+                    node.newFriend?.Invoke(friend);
                 }
 
             }
@@ -255,7 +267,6 @@ namespace Nodes
                 }
                 catch (Exception ex)
                 {
-                    //Console.WriteLine("Port " + myPort + " isn't free");
                     myPort++;
                 }
             }
@@ -266,7 +277,6 @@ namespace Nodes
 
         public static void SendLetterToFriends(Node node, SendedLetter sendedLetter, IPEndPoint sender = null)
         {
-
             byte[] data = new byte[4];
             data[0] = 4;
             data[1] = (byte)Convert.ToInt32(sendedLetter.letter);
@@ -274,6 +284,7 @@ namespace Nodes
 
             data[3] = (byte)(node.me.Port - 8000);
 
+            node.exFriends.Clear();
             for (int i = 0; i < node.friends.Count; i++)
             {
                 var friend = new IPEndPoint(node.friends[i].Address, node.friends[i].Port);
@@ -312,7 +323,11 @@ namespace Nodes
                     node.exFriends.Add(friend);
             }
             foreach (var item in node.exFriends)
+            {
                 node.friends.Remove(item);
+                node.dieFriend?.Invoke(item);
+            }
+                
         }
 
         public static void LettersForSendQueryHandler(Node node)
