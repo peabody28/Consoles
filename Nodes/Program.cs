@@ -40,27 +40,35 @@ namespace Nodes
 
         private List<IPEndPoint> exFriends = new List<IPEndPoint>();
 
-
         private TcpListener tcpListener = null;
 
+        // если спустя это время консоль не ответит, считаю ее закрытой
         private int tcpConnectionTimeout = 2000;
-
 
         private UdpClient server = null;
 
         private static Random rand = new Random((int)DateTime.Now.Ticks);
 
-        private Queue<Task> query = new Queue<Task>();
+        // очередь букв для отправки
+        private Queue<Task> lettersForSendQuery = new Queue<Task>();
 
-
+        #region Events
         private delegate void FriendActions(IPEndPoint point);
-        private event FriendActions newFriend = null;
+
+        // Событие появления новой ноды
+        private event FriendActions newFriend = NewFriendMessage;
+
         public static void NewFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("New friend: "+friend.ToString());
 
-        private event FriendActions dieFriend = null;
+
+        // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
+        private event FriendActions dieFriend = DieFriendMessage;
+
         public static void DieFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("Die friend: " + friend.ToString());
+
+        #endregion
 
         // Широковещательный запрос
         private static void SayHello(Node node)
@@ -79,9 +87,8 @@ namespace Nodes
             }
             catch (Exception ex)
             {
-                //Console.WriteLine(ex.Message);
+                Console.WriteLine(ex.Message);
             }
-            //client.Close();
         }
 
         // Слушаю широковещательные запросы от консолей
@@ -170,7 +177,7 @@ namespace Nodes
                         node.sendedLetters.Add(sl);
 
                         var task = new Task(() => SendLetterToFriends(node, sl, clientEndPoint));
-                        node.query.Enqueue(task);
+                        node.lettersForSendQuery.Enqueue(task);
                     }
                 }
                 stream.Close();
@@ -287,12 +294,20 @@ namespace Nodes
             node.exFriends.Clear();
             for (int i = 0; i < node.friends.Count; i++)
             {
-                var friend = new IPEndPoint(node.friends[i].Address, node.friends[i].Port);
+                IPEndPoint friend;
+                try
+                {
+                     friend = new IPEndPoint(node.friends[i].Address, node.friends[i].Port);
+                }
+                catch(IndexOutOfRangeException )
+                {
+                    break;
+                }
 
                 if (friend.Equals(sender))
                     continue;
-                bool good = false;
 
+                bool good = false;
                 Task.Run(() =>
                 {
                     try
@@ -320,23 +335,30 @@ namespace Nodes
                     Thread.Sleep(timeout);
                 }
                 if (!good)
+                {
+                    //node.friends.Remove(friend);
+                    //node.dieFriend?.Invoke(friend);
+                    //i--;
                     node.exFriends.Add(friend);
+                }
+
             }
+            
             foreach (var item in node.exFriends)
             {
                 node.friends.Remove(item);
                 node.dieFriend?.Invoke(item);
             }
-                
+             
         }
 
         public static void LettersForSendQueryHandler(Node node)
         {
             while(true)
             {
-                while (node.query.Count == 0) ;
+                while (node.lettersForSendQuery.Count == 0) ;
 
-                var task = node.query.Dequeue();
+                var task = node.lettersForSendQuery.Dequeue();
                 task.Start();
                 task.Wait();
             }
@@ -357,6 +379,8 @@ namespace Nodes
             Task.Run(() => ListenTCPConnections(node));
             Task.Run(() => ListenUDPRequests(node));
             Task.Run(() => LettersForSendQueryHandler(node));
+
+
             #region SendLetter
 
             while (true)
@@ -373,9 +397,14 @@ namespace Nodes
                 node.sendedLetters.Add(sl);
 
                 var task = new Task(() => SendLetterToFriends(node, sl));
-                node.query.Enqueue(task);
+                node.lettersForSendQuery.Enqueue(task);
             }
             #endregion
+            /*
+            node.tcpListener.Stop();
+            node.server.Close();
+            node.server.Dispose();
+            */
         }
     }
 
