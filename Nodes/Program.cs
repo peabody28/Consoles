@@ -31,41 +31,42 @@ namespace Nodes
             }
         }
 
-        private List<SendedLetter> sendedLetters = new List<SendedLetter>();
+        public List<SendedLetter> sendedLetters = new List<SendedLetter>();
 
         // Максимальное количество букв которое я буду помнить при отправке
-        private static int maxLettersQuery = 200;
+        public static int maxLettersQuery = 200;
 
-        private IPEndPoint me;
+        public IPEndPoint me;
 
-        private List<IPEndPoint> friends = new List<IPEndPoint>();
+        public List<IPEndPoint> friends = new List<IPEndPoint>();
 
-        private List<IPEndPoint> exFriends = new List<IPEndPoint>();
+        public List<IPEndPoint> exFriends = new List<IPEndPoint>();
 
-        private TcpListener tcpListener = null;
+        public TcpListener tcpListener = null;
+        public bool tcpListenerStatus = true;
 
         // если спустя это время консоль не ответит, считаю ее закрытой
-        private int tcpConnectionTimeout = 1000;
+        public int tcpConnectionTimeout = 5000;
 
-        private UdpClient server = null;
+        public UdpClient server = null;
+        public bool udpServerStatus = true;
 
-        private static Random rand = new Random((int)DateTime.Now.Ticks);
+        public static Random rand = new Random((int)DateTime.Now.Ticks);
 
         // очередь букв для отправки
-        private Queue<Task> lettersForSendQuery = new Queue<Task>();
+        public Queue<Task> lettersForSendQuery = new Queue<Task>();
 
         #region Events
-        private delegate void FriendActions(IPEndPoint point);
+        public delegate void FriendActions(IPEndPoint point);
 
         // Событие появления новой ноды
-        private event FriendActions newFriend = NewFriendMessage;
+        public event FriendActions newFriend = null;
 
         public static void NewFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("New friend: " + friend.ToString());
 
-
         // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
-        private event FriendActions dieFriend = DieFriendMessage;
+        public event FriendActions dieFriend = null;
 
         public static void DieFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("Die friend: " + friend.ToString());
@@ -73,7 +74,7 @@ namespace Nodes
         #endregion
 
         // Широковещательный запрос
-        private static void SayHello(Node node)
+        public static void SayHello(Node node)
         {
             var client = node.server;
 
@@ -101,6 +102,12 @@ namespace Nodes
 
             while (true)
             {
+                if (node.udpServerStatus == false)
+                {
+                    server.Close();
+                    server.Dispose();
+                    return;
+                }
                 // Ожидание запроса новой консоли
                 byte[] data = server.Receive(ref RemoteIpEndPoint);
 
@@ -152,6 +159,11 @@ namespace Nodes
 
             while (true)
             {
+                if (node.tcpListenerStatus == false)
+                {
+                    server.Stop();
+                    return;
+                }
                 TcpClient client = server.AcceptTcpClient();
                 var stream = client.GetStream();
                 var data = new byte[256];
@@ -189,10 +201,11 @@ namespace Nodes
                 client.Close();
 
             }
+            
         }
 
         // Подготовка массива байтов для отправки при запросе (кого ты знаешь?)
-        private static byte[] FriendListForSend(Node node)
+        public static byte[] FriendListForSend(Node node)
         {
             byte[] response = new byte[2 + (node.friends.Count + 1) * 5];
             response[0] = 3;
@@ -220,7 +233,7 @@ namespace Nodes
         }
 
         // Обновение списка друзей
-        private static void UpdateFriendsFromBytes(Node node, byte[] data)
+        public static void UpdateFriendsFromBytes(Node node, byte[] data)
         {
             string ip;
             int port = 0;
@@ -318,7 +331,7 @@ namespace Nodes
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("\ncannot connect to " + friend.ToString());
+                        //Console.WriteLine("\ncannot connect to " + friend.ToString());
                     }
                 });
 
@@ -357,11 +370,14 @@ namespace Nodes
             }
         }
 
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
             Node node = new Node();
 
             node.me = GetLocalIPEndPoint();
+
+            node.dieFriend = DieFriendMessage;
+            node.newFriend = NewFriendMessage;
 
             node.server = new UdpClient();
             node.server.Client.Bind(node.me);
