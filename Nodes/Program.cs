@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+
 namespace Nodes
 {
     /*
@@ -63,7 +64,7 @@ namespace Nodes
         public event FriendActions newFriend = null;
 
         public static void NewFriendMessage(IPEndPoint friend) =>
-            Console.WriteLine("New friend: " + friend.ToString());
+            Console.WriteLine("\nNew friend: " + friend.ToString());
 
         // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
         public event FriendActions dieFriend = null;
@@ -177,25 +178,10 @@ namespace Nodes
                 {
                     int port = data[3] + 8000;
                     var clientEndPoint = client.Client.RemoteEndPoint.ToIPEndPoint(port);
+                    char letter = Convert.ToChar(data[1]);
+                    var sl = new SendedLetter(letter, data[2]);
 
-                    Task.Run(() =>
-                    {
-                        char letter = Convert.ToChar(data[1]);
-
-                        var sl = new SendedLetter(letter, data[2]);
-
-                        if (!node.sendedLetters.Contains(sl))
-                        {
-                            Console.Write(letter);
-
-                            while (node.sendedLetters.Count >= Node.maxLettersQuery)
-                                node.sendedLetters.RemoveAt(0);
-                            node.sendedLetters.Add(sl);
-
-                            var task = new Task(() => SendLetterToFriends(node, sl, clientEndPoint));
-                            node.lettersForSendQuery.Enqueue(task);
-                        }
-                    });
+                    Task.Run(() =>node.GetLetterAction(clientEndPoint, sl));
                 }
                 stream.Close();
                 client.Close();
@@ -298,6 +284,21 @@ namespace Nodes
             return local;
         }
 
+        public virtual void GetLetterAction(IPEndPoint client, SendedLetter sl)
+        {
+            if (!this.sendedLetters.Contains(sl))
+            {
+                Console.Write(sl.letter);
+
+                while (this.sendedLetters.Count >= Node.maxLettersQuery)
+                    this.sendedLetters.RemoveAt(0);
+                this.sendedLetters.Add(sl);
+
+                var task = new Task(() => SendLetterToFriends(this, sl, client));
+                this.lettersForSendQuery.Enqueue(task);
+            }
+        }
+
         public static void SendLetterToFriends(Node node, SendedLetter sendedLetter, IPEndPoint sender = null)
         {
             byte[] data = new byte[4];
@@ -370,13 +371,27 @@ namespace Nodes
             }
         }
 
+        public void PutLetterToQueue(char letter)
+        {
+            byte hash = (byte)rand.Next(0, 255);
+
+            var sl = new SendedLetter(letter, hash);
+
+            while (this.sendedLetters.Count >= Node.maxLettersQuery)
+                this.sendedLetters.RemoveAt(0);
+            this.sendedLetters.Add(sl);
+
+            var task = new Task(() => SendLetterToFriends(this, sl));
+            this.lettersForSendQuery.Enqueue(task);
+        }
+
         public static void Main(string[] args)
         {
             Node node = new Node();
 
             node.me = GetLocalIPEndPoint();
 
-            node.dieFriend = DieFriendMessage;
+            //node.dieFriend = DieFriendMessage;
             node.newFriend = NewFriendMessage;
 
             node.server = new UdpClient();
@@ -396,16 +411,7 @@ namespace Nodes
                 var key = Console.ReadKey();
                 char c = key.KeyChar;
 
-                byte hash = (byte)rand.Next(0, 255);
-
-                var sl = new SendedLetter(c, hash);
-
-                while (node.sendedLetters.Count >= Node.maxLettersQuery)
-                    node.sendedLetters.RemoveAt(0);
-                node.sendedLetters.Add(sl);
-
-                var task = new Task(() => SendLetterToFriends(node, sl));
-                node.lettersForSendQuery.Enqueue(task);
+                node.PutLetterToQueue(c);
             }
             #endregion
             /*

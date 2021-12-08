@@ -1,0 +1,86 @@
+﻿@model NodesWeb.Models.Letter
+
+
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Form</title>
+    <link rel="stylesheet" type="text/css" href="~/Content/Site.css" />
+    <link rel="stylesheet" type="text/css" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+
+</head>
+<body>
+
+    <div class="m-0 p-0 container-fluid d-flex justify-content-center mt-5">
+        <div class="m-0 p-0 col-6">
+            <form id="send_command" method="POST" class="m-0 p-0 col-12">
+                <div class="d-flex justify-content-center row m-0 p-0">
+                    <input id="inp" type="text" name="LetterText" style="font-size: 20px;" class="col-4" />
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-4"></div>
+        <div class="col-6 m-0 p-0 container-fluid d-flex justify-content-start" id="text"></div>
+    </div>
+    
+    <script src="~/js/microsoft/signalr/dist/browser/signalr.min.js"></script>
+    <script type="text/javascript">
+
+        var intervalID2 = setInterval(checkInput, 100);
+
+        var lastStr = "";
+        function checkInput() {
+
+            if ($('#inp').val() != lastStr) {
+                lastStr = $('#inp').val();
+                reload();
+            }
+        }
+
+
+        const hubConnection = new signalR.HubConnectionBuilder()
+            .withUrl("/Home/Hub")
+            .build();
+
+        function reload() {
+            let pos = $('#inp').val().length - 1;
+            let letter = $('#inp').val()[pos];
+
+            hubConnection.invoke("Send",letter);
+        }
+
+        hubConnection.on("Send",
+            function (data) {
+                $('#text').append(data);
+                // прием буквы
+            });
+
+        hubConnection.start().then(function () {
+            console.log('Connected!');
+        }).catch(function (err) {
+            return console.error(err.toString());
+        });
+
+        function InitServerRequest() {
+            $.ajax({
+                type: 'GET',
+                url: '/Home/Init',
+                success: function (result) {
+                    console.log(result);
+                }
+            });
+            
+        }
+        InitServerRequest();
+
+    </script>
+</body>
+</html>
