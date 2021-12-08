@@ -69,18 +69,6 @@
             return console.error(err.toString());
         });
 
-        function InitServerRequest() {
-            $.ajax({
-                type: 'GET',
-                url: '/Home/Init',
-                success: function (result) {
-                    console.log(result);
-                }
-            });
-            
-        }
-        InitServerRequest();
-
     </script>
 </body>
 </html>

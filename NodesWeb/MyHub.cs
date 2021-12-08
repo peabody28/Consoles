@@ -9,15 +9,15 @@ namespace NodesWeb.Hubs
 {
     public class MyHub : Hub
     {
+        public static WebNode _node;
+        public MyHub(WebNode node)
+        {
+            _node = node;
+        }
         public void Send(string message)
         {
             this.Clients.All.SendAsync("Send", message);
-            SendToConsoles(message);
-        }
-
-        public void SendToConsoles(string message)
-        {
-            HomeController.node.PutLetterToQueue(Convert.ToChar(message));
+            _node.SendLetterToConsoles(message);
         }
     }
 }
