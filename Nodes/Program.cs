@@ -32,53 +32,49 @@ namespace Nodes
             }
         }
 
-        protected List<SendedLetter> sendedLetters = new List<SendedLetter>();
+        private List<SendedLetter> sendedLetters = new List<SendedLetter>();
 
         // Максимальное количество букв которое я буду помнить при отправке
-        protected static int maxLettersQuery = 200;
+        private static int maxLettersQuery = 200;
 
-        protected IPEndPoint me;
+        private IPEndPoint me;
 
-        protected List<IPEndPoint> friends = new List<IPEndPoint>();
+        private List<IPEndPoint> friends = new List<IPEndPoint>();
 
-        protected List<IPEndPoint> exFriends = new List<IPEndPoint>();
+        private List<IPEndPoint> exFriends = new List<IPEndPoint>();
 
-        public TcpListener tcpListener = null;
-        protected bool tcpListenerStatus = true;
+        private TcpListener tcpListener = null;
+        private bool tcpListenerStatus = true;
         // если спустя это время консоль не ответит, считаю ее закрытой
-        protected static int tcpConnectionTimeout = 5000;
+        private static int tcpConnectionTimeout = 5000;
 
-        public UdpClient server = null;
-        protected bool udpServerStatus = true;
+        private UdpClient server = null;
+        private bool udpServerStatus = true;
 
-        protected static Random rand = new Random((int)DateTime.Now.Ticks);
+        private static Random rand = new Random((int)DateTime.Now.Ticks);
 
         // очередь букв для отправки
-        protected Queue<Task> lettersForSendQuery = new Queue<Task>();
+        private Queue<Task> lettersForSendQuery = new Queue<Task>();
 
         #region Events
-        protected delegate void FriendActions(IPEndPoint point);
+        private delegate void FriendActions(IPEndPoint point);
 
         // Событие появления новой ноды
-        protected event FriendActions newFriend = null;
+        private event FriendActions newFriend = null;
 
-        protected static void NewFriendMessage(IPEndPoint friend) =>
+        private static void NewFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("\nNew friend: " + friend.ToString());
 
         // Событие исчезновения ноды (обработать ли событие отправкой запроса "node die"?)
-        protected event FriendActions dieFriend = null;
+        private event FriendActions dieFriend = null;
 
-        protected static void DieFriendMessage(IPEndPoint friend) =>
+        private static void DieFriendMessage(IPEndPoint friend) =>
             Console.WriteLine("Die friend: " + friend.ToString());
 
         #endregion
 
-        public IPEndPoint GetMyEndPoint()
-        {
-            return new IPEndPoint(me.Address, me.Port);
-        }
         // Широковещательный запрос
-        public void SayHello()
+        private void SayHello()
         {
             var client = this.server;
 
@@ -99,7 +95,7 @@ namespace Nodes
         }
 
         // Слушаю широковещательные запросы от консолей
-        public void ListenUDPRequests()
+        private void ListenUDPRequests()
         {
             var server = this.server;
             IPEndPoint RemoteIpEndPoint = null;
@@ -150,7 +146,7 @@ namespace Nodes
         }
 
         // Слушаю запросы на подключение от консолей
-        public void ListenTCPConnections()
+        private void ListenTCPConnections()
         {
             // могут прийти 2 типа запросов:
             //    некая нода присылает друзей включая себя (код 3)
@@ -194,7 +190,7 @@ namespace Nodes
         }
 
         // Подготовка массива байтов для отправки при запросе (кого ты знаешь?)
-        protected byte[] FriendListForSend()
+        private byte[] FriendListForSend()
         {
             byte[] response = new byte[2 + (this.friends.Count + 1) * 5];
             response[0] = 3;
@@ -221,8 +217,8 @@ namespace Nodes
             return response;
         }
 
-        // Обновение списка друзей
-        protected void UpdateFriendsFromBytes(byte[] data)
+        // Обновление списка друзей
+        private void UpdateFriendsFromBytes(byte[] data)
         {
             string ip;
             int port = 0;
@@ -252,7 +248,7 @@ namespace Nodes
             }
         }
 
-        public static IPEndPoint GetLocalIPEndPoint()
+        private static IPEndPoint GetLocalIPEndPoint()
         {
             // определяю свой IP
             IPAddress myIP = null;
@@ -287,11 +283,16 @@ namespace Nodes
             return local;
         }
 
-        protected virtual void GetLetterAction(IPEndPoint client, SendedLetter sl)
+        protected virtual void UseLetter(char letter)
+        {
+            Console.Write(letter);
+        }
+
+        private void GetLetterAction(IPEndPoint client, SendedLetter sl)
         {
             if (!this.sendedLetters.Contains(sl))
             {
-                Console.Write(sl.letter);
+                this.UseLetter(sl.letter);
 
                 while (this.sendedLetters.Count >= Node.maxLettersQuery)
                     this.sendedLetters.RemoveAt(0);
@@ -302,7 +303,7 @@ namespace Nodes
             }
         }
 
-        protected void SendLetterToFriends(SendedLetter sendedLetter, IPEndPoint sender = null)
+        private void SendLetterToFriends(SendedLetter sendedLetter, IPEndPoint sender = null)
         {
             byte[] data = new byte[4];
             data[0] = 4;
@@ -357,7 +358,7 @@ namespace Nodes
 
         }
 
-        public void LettersForSendQueryHandler()
+        private void LettersForSendQueryHandler()
         {
 
             while (true)
@@ -388,24 +389,30 @@ namespace Nodes
             this.lettersForSendQuery.Enqueue(task);
         }
 
+        public Node()
+        {
+            this.me = Node.GetLocalIPEndPoint();
+
+            //node.dieFriend = DieFriendMessage;
+            //newFriend = NewFriendMessage;
+
+            server = new UdpClient();
+            server.Client.Bind(me);
+
+            SayHello();
+            //Console.WriteLine(me.ToString());
+
+            Task.Run(() => ListenTCPConnections());
+            Task.Run(() => ListenUDPRequests());
+            Task.Run(() => LettersForSendQueryHandler());
+        }
+    }
+
+    public class Program
+    {
         public static void Main(string[] args)
         {
             Node node = new Node();
-            node.me = GetLocalIPEndPoint();
-            //node.dieFriend = DieFriendMessage;
-            node.newFriend = NewFriendMessage;
-
-            node.server = new UdpClient();
-            node.server.Client.Bind(node.me);
-
-            node.SayHello();
-            Console.WriteLine(node.me.ToString());
-
-            Task.Run(() => node.ListenTCPConnections());
-            Task.Run(() => node.ListenUDPRequests());
-            Task.Run(() => node.LettersForSendQueryHandler());
-
-            #region SendLetter
 
             while (true)
             {
@@ -414,17 +421,6 @@ namespace Nodes
 
                 node.PutLetterToQueue(c);
             }
-            #endregion
-            /*
-            node.tcpListener.Stop();
-            node.server.Close();
-            node.server.Dispose();
-            */
-        }
-
-        public Node()
-        {
-            this.me = Node.GetLocalIPEndPoint();
         }
     }
 
